@@ -57,6 +57,21 @@ from nq.trading.selector.teapot.box_detector_keltner_squeeze import (
 from nq.trading.selector.teapot.box_detector_accurate import (
     AccurateBoxDetector,
 )
+from nq.trading.selector.teapot.box_detector_balanced import (
+    BalancedBoxDetector,
+)
+from nq.trading.selector.teapot.box_detector_dense_area import (
+    DenseAreaBoxDetector,
+)
+from nq.trading.selector.teapot.box_detector_ribbon_coherence import (
+    RibbonCoherenceDetector,
+)
+from nq.trading.selector.teapot.box_detector_composite_equilibrium import (
+    CompositeEquilibriumDetector,
+)
+from nq.trading.selector.teapot.box_detector_anti_step import (
+    AntiStepBoxDetector,
+)
 from nq.trading.selector.teapot.box_visualizer import BoxVisualizer
 
 logging.basicConfig(
@@ -338,18 +353,66 @@ class BoxDetectorEvaluator:
                 smooth_window=4,
                 smooth_threshold=3,
             ),
-            "expansion_anchor": ExpansionAnchorBoxDetector(
-                box_window=40,
-                squeeze_threshold=0.06,
-                slope_threshold=0.015,
-                atr_multiplier=1.5,
-                lookback_window=60,
-                expansion_window=20,
-                stability_window=20,
-                stability_threshold=12,  # Reduced from 15 to 12 for better recall
+            "balanced": BalancedBoxDetector(
+                box_window=30,
+                height_threshold=0.12,  # Increased to 12% for better recall
+                symmetry_threshold=0.15,  # Relaxed to 15% for better recall
+                uniformity_threshold=0.45,  # Increased to 45% (based on median CV=0.4517)
+                slope_threshold=0.015,  # Increased to 1.5% slope change
                 smooth_window=5,
                 smooth_threshold=3,
             ),
+            "dense_area": DenseAreaBoxDetector(
+                box_window=40,
+                dense_threshold=0.05,  # 5% core band; use 0.03–0.04 for stricter
+                quantile_high=0.8,
+                quantile_low=0.2,
+                vol_stability_threshold=0.03,
+                mid_slope_threshold=0.02,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
+            "ribbon_coherence": RibbonCoherenceDetector(
+                min_steady_days=15,
+                convergence_threshold=0.015,
+                ma_slope_threshold=0.01,
+                price_to_ma_threshold=0.02,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
+            "composite_equilibrium": CompositeEquilibriumDetector(
+                box_window=20,
+                ma_cohesion_threshold=0.015,
+                quantile_width_threshold=0.04,
+                quantile_window=20,
+                cross_count_min=3,
+                cross_window=15,
+                volume_short=15,
+                volume_long=60,
+                volume_ratio=0.8,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
+            "anti_step": AntiStepBoxDetector(
+                box_window=20,
+                r_threshold=0.4,
+                center_dev_threshold=0.6,
+                box_width_threshold=0.15,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
+            # "expansion_anchor": ExpansionAnchorBoxDetector(
+            #     box_window=40,
+            #     squeeze_threshold=0.06,
+            #     slope_threshold=0.015,
+            #     atr_multiplier=1.5,
+            #     lookback_window=60,
+            #     expansion_window=20,
+            #     stability_window=20,
+            #     stability_threshold=12,  # Reduced from 15 to 12 for better recall
+            #     smooth_window=5,
+            #     smooth_threshold=3,
+            # ),
         }
 
         # Evaluate each detector
@@ -582,6 +645,54 @@ class BoxDetectorEvaluator:
                 smooth_window=4,
                 smooth_threshold=3,
             ),
+            "balanced": BalancedBoxDetector(
+                box_window=30,
+                height_threshold=0.12,  # Match main evaluation parameters
+                symmetry_threshold=0.15,
+                uniformity_threshold=0.45,
+                slope_threshold=0.015,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
+            "dense_area": DenseAreaBoxDetector(
+                box_window=40,
+                dense_threshold=0.05,
+                quantile_high=0.8,
+                quantile_low=0.2,
+                vol_stability_threshold=0.03,
+                mid_slope_threshold=0.02,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
+            "ribbon_coherence": RibbonCoherenceDetector(
+                min_steady_days=15,
+                convergence_threshold=0.015,
+                ma_slope_threshold=0.01,
+                price_to_ma_threshold=0.02,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
+            "composite_equilibrium": CompositeEquilibriumDetector(
+                box_window=20,
+                ma_cohesion_threshold=0.015,
+                quantile_width_threshold=0.04,
+                quantile_window=20,
+                cross_count_min=3,
+                cross_window=15,
+                volume_short=15,
+                volume_long=60,
+                volume_ratio=0.8,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
+            "anti_step": AntiStepBoxDetector(
+                box_window=20,
+                r_threshold=0.4,
+                center_dev_threshold=0.6,
+                box_width_threshold=0.15,
+                smooth_window=5,
+                smooth_threshold=3,
+            ),
         }
 
         # Apply all detectors
@@ -734,8 +845,63 @@ class BoxDetectorEvaluator:
         elif detector_type == "accurate":
             detector = AccurateBoxDetector(
                 box_window=30,
-                price_tol=0.03,
-                min_cross_count=3,
+                price_tol=0.09,  # Match evaluation script parameters
+                min_cross_count=4,
+                min_touch_count=1,
+                touch_tolerance=0.03,
+                smooth_window=4,
+                smooth_threshold=3,
+            )
+        elif detector_type == "balanced":
+            detector = BalancedBoxDetector(
+                box_window=30,
+                height_threshold=0.12,
+                symmetry_threshold=0.15,
+                uniformity_threshold=0.45,
+                slope_threshold=0.015,
+                smooth_window=5,
+                smooth_threshold=3,
+            )
+        elif detector_type == "dense_area":
+            detector = DenseAreaBoxDetector(
+                box_window=40,
+                dense_threshold=0.05,
+                quantile_high=0.8,
+                quantile_low=0.2,
+                vol_stability_threshold=0.03,
+                mid_slope_threshold=0.02,
+                smooth_window=5,
+                smooth_threshold=3,
+            )
+        elif detector_type == "ribbon_coherence":
+            detector = RibbonCoherenceDetector(
+                min_steady_days=15,
+                convergence_threshold=0.015,
+                ma_slope_threshold=0.01,
+                price_to_ma_threshold=0.02,
+                smooth_window=5,
+                smooth_threshold=3,
+            )
+        elif detector_type == "composite_equilibrium":
+            detector = CompositeEquilibriumDetector(
+                box_window=20,
+                ma_cohesion_threshold=0.015,
+                quantile_width_threshold=0.04,
+                quantile_window=20,
+                cross_count_min=3,
+                cross_window=15,
+                volume_short=15,
+                volume_long=60,
+                volume_ratio=0.8,
+                smooth_window=5,
+                smooth_threshold=3,
+            )
+        elif detector_type == "anti_step":
+            detector = AntiStepBoxDetector(
+                box_window=20,
+                r_threshold=0.4,
+                center_dev_threshold=0.6,
+                box_width_threshold=0.15,
                 smooth_window=5,
                 smooth_threshold=3,
             )
@@ -1159,6 +1325,59 @@ def main():
                             smooth_window=4,  # Match evaluation script parameters
                             smooth_threshold=3,
                         )
+                    elif detector_type == "balanced":
+                        detector = BalancedBoxDetector(
+                            box_window=30,
+                            height_threshold=0.12,  # Match evaluation script parameters
+                            symmetry_threshold=0.15,
+                            uniformity_threshold=0.45,
+                            slope_threshold=0.015,
+                            smooth_window=5,
+                            smooth_threshold=3,
+                        )
+                    elif detector_type == "dense_area":
+                        detector = DenseAreaBoxDetector(
+                            box_window=40,
+                            dense_threshold=0.05,
+                            quantile_high=0.8,
+                            quantile_low=0.2,
+                            vol_stability_threshold=0.03,
+                            mid_slope_threshold=0.02,
+                            smooth_window=5,
+                            smooth_threshold=3,
+                        )
+                    elif detector_type == "ribbon_coherence":
+                        detector = RibbonCoherenceDetector(
+                            min_steady_days=15,
+                            convergence_threshold=0.015,
+                            ma_slope_threshold=0.01,
+                            price_to_ma_threshold=0.02,
+                            smooth_window=5,
+                            smooth_threshold=3,
+                        )
+                    elif detector_type == "composite_equilibrium":
+                        detector = CompositeEquilibriumDetector(
+                            box_window=20,
+                            ma_cohesion_threshold=0.015,
+                            quantile_width_threshold=0.04,
+                            quantile_window=20,
+                            cross_count_min=3,
+                            cross_window=15,
+                            volume_short=15,
+                            volume_long=60,
+                            volume_ratio=0.8,
+                            smooth_window=5,
+                            smooth_threshold=3,
+                        )
+                    elif detector_type == "anti_step":
+                        detector = AntiStepBoxDetector(
+                            box_window=20,
+                            r_threshold=0.4,
+                            center_dev_threshold=0.6,
+                            box_width_threshold=0.15,
+                            smooth_window=5,
+                            smooth_threshold=3,
+                        )
                     else:
                         logger.warning(f"✗ Unknown detector type: {detector_type}, skipping...")
                         continue
@@ -1246,6 +1465,15 @@ def main():
                             chart_results.write_csv(chart_results_file)
                             logger.info(f"✓ Saved chart results to {chart_results_file}")
                             
+                            # Create summary HTML with all chart images
+                            summary_html = visualizer.create_summary_html(
+                                results_df=chart_results,
+                                output_file=detector_dir / f"summary_{args.start_date}_{args.end_date}.html",
+                                title=f"Box Detection Charts Summary - {detector_type}",
+                            )
+                            if summary_html:
+                                logger.info(f"✓ Created summary HTML: {summary_html}")
+                            
                             # Print summary
                             success_count = chart_results.filter(pl.col("status") == "success").height
                             failed_count = chart_results.filter(pl.col("status") != "success").height
@@ -1257,6 +1485,8 @@ def main():
                             print(f"Charts generated (success): {success_count}")
                             print(f"Charts failed: {failed_count}")
                             print(f"Charts saved to: {chart_dir}")
+                            if summary_html:
+                                print(f"Summary HTML: {summary_html}")
                             print("=" * 80)
                             
                             if success_count == 0:

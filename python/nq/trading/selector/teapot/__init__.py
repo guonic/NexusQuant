@@ -26,6 +26,21 @@ from nq.trading.selector.teapot.box_detector_keltner_squeeze import (
 from nq.trading.selector.teapot.box_detector_accurate import (
     AccurateBoxDetector,
 )
+from nq.trading.selector.teapot.box_detector_balanced import (
+    BalancedBoxDetector,
+)
+from nq.trading.selector.teapot.box_detector_dense_area import (
+    DenseAreaBoxDetector,
+)
+from nq.trading.selector.teapot.box_detector_ribbon_coherence import (
+    RibbonCoherenceDetector,
+)
+from nq.trading.selector.teapot.box_detector_composite_equilibrium import (
+    CompositeEquilibriumDetector,
+)
+from nq.trading.selector.teapot.box_detector_anti_step import (
+    AntiStepBoxDetector,
+)
 from nq.trading.selector.teapot.features import TeapotFeatures
 from nq.trading.selector.teapot.filters import TeapotFilters
 from nq.trading.selector.teapot.state_machine import TeapotStateMachine
@@ -46,4 +61,9 @@ __all__ = [
     "KeltnerSqueezeDetector",
     "ExpansionAnchorBoxDetector",
     "AccurateBoxDetector",
+    "BalancedBoxDetector",
+    "DenseAreaBoxDetector",
+    "RibbonCoherenceDetector",
+    "CompositeEquilibriumDetector",
+    "AntiStepBoxDetector",
 ]
