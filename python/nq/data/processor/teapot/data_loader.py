@@ -169,7 +169,8 @@ class TeapotDataLoader:
             logger.warning(
                 "Loading all stocks - this may be slow. Consider specifying symbols."
             )
-            
+            all_data = []
+
             # Get all stock codes from stock_basic table
             try:
                 all_stocks = self.stock_basic_repo.get_all()
