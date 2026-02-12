@@ -1,0 +1,171 @@
+# -*- coding: utf-8 -*-
+"""
+Teapot Tangle Reversal Scanner (缠绕扭转器 - 缓跌中的揉搓见底 信号捕捉).
+
+Runs capture_tangle_reversal: MA tangle (convergence) + reversal signal.
+仅做信号捕捉，输出 CSV：ts_code, signal_date, trade_date, ma_max, ma_min, close。
+
+Usage:
+  PYTHONPATH=python python python/examples/teapot_tangle_reversal_scan.py --start-date 2023-01-01 --end-date 2024-12-31
+  PYTHONPATH=python python python/examples/teapot_tangle_reversal_scan.py --start-date 2023-01-01 --end-date 2024-12-31 --symbols 600487.SH --output outputs/teapot/tangle_signals.csv --use-cache
+"""
+
+import argparse
+import logging
+from pathlib import Path
+
+import polars as pl
+
+from nq.config import DatabaseConfig, load_config
+from nq.data.processor.teapot import TeapotDataLoader
+from nq.trading.selector.teapot import TangleReversalScanner
+from nq.utils.data_normalize import normalize_stock_code
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+def _parse_symbols(raw: list) -> list:
+    """Normalize and expand comma-separated symbols to ts_code list."""
+    parts = []
+    for s in raw:
+        parts.extend(p.strip() for p in s.split(",") if p.strip())
+    codes = [normalize_stock_code(p) for p in parts]
+    seen = set()
+    return [c for c in codes if c and c not in seen and not seen.add(c)]
+
+
+def run_scan(
+    df: pl.DataFrame,
+    scanner: TangleReversalScanner,
+    output_path: str,
+) -> None:
+    """Run tangle reversal scanner, keep rows where signal_tangle, write CSV."""
+    analyzed = scanner.analyze(df, ts_code_col="ts_code")
+
+    signals = analyzed.filter(pl.col("signal_tangle"))
+
+    if signals.is_empty():
+        logger.warning("No signals to write")
+        out_df = pl.DataFrame(schema={
+            "ts_code": pl.Utf8,
+            "signal_date": pl.Utf8,
+            "trade_date": pl.Utf8,
+            "ma_max": pl.Float64,
+            "ma_min": pl.Float64,
+            "close": pl.Float64,
+        })
+    else:
+        out_df = signals.select([
+            pl.col("ts_code"),
+            pl.col("trade_date").alias("signal_date"),
+            pl.col("trade_date"),
+            pl.col("ma_max"),
+            pl.col("ma_min"),
+            pl.col("close"),
+        ])
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    out_df.write_csv(output_path)
+    logger.info("Wrote %d signals to %s", len(out_df), output_path)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Teapot tangle reversal scanner (缠绕扭转器 - 缓跌中的揉搓见底)"
+    )
+    parser.add_argument("--start-date", type=str, required=True, help="Start date YYYY-MM-DD")
+    parser.add_argument("--end-date", type=str, required=True, help="End date YYYY-MM-DD")
+    parser.add_argument(
+        "--symbols",
+        type=str,
+        nargs="*",
+        help="Stock codes (e.g. 600487 or 600487.SH)",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="outputs/teapot/tangle_signals.csv",
+        help="Output CSV path",
+    )
+    parser.add_argument(
+        "--ma-periods",
+        type=int,
+        nargs="+",
+        default=[5, 10, 20],
+        help="MA periods (default: 5 10 20)",
+    )
+    parser.add_argument(
+        "--compactness-threshold",
+        type=float,
+        default=0.015,
+        help="Max relative distance for tangle (default: 0.015 = 1.5%%)",
+    )
+    parser.add_argument(
+        "--tangle-window",
+        type=int,
+        default=5,
+        help="Lookback days for had tangle (default: 5)",
+    )
+    parser.add_argument(
+        "--consecutive-days",
+        type=int,
+        default=2,
+        help="Days price must stay above all MAs (default: 2)",
+    )
+    parser.add_argument(
+        "--no-yang-line",
+        action="store_true",
+        help="Do not require close > open for signal",
+    )
+    parser.add_argument(
+        "--no-ma-ordering",
+        action="store_true",
+        help="Do not require ma5 > ma10",
+    )
+    parser.add_argument("--use-cache", action="store_true")
+    args = parser.parse_args()
+
+    symbols = _parse_symbols(args.symbols) if args.symbols else None
+    if args.symbols and not symbols:
+        logger.error("No valid symbols: %s", args.symbols)
+        return
+
+    try:
+        config = load_config()
+        db_config = config.database
+    except Exception as e:
+        logger.warning("Load config failed: %s", e)
+        db_config = DatabaseConfig()
+
+    loader = TeapotDataLoader(
+        db_config=db_config,
+        schema="quant",
+        use_cache=args.use_cache,
+    )
+    logger.info("Loading data %s to %s", args.start_date, args.end_date)
+    df = loader.load_daily_data(
+        start_date=args.start_date,
+        end_date=args.end_date,
+        symbols=symbols,
+    )
+    if df.is_empty():
+        logger.error("No data loaded")
+        return
+
+    scanner = TangleReversalScanner(
+        ma_periods=args.ma_periods,
+        compactness_threshold=args.compactness_threshold,
+        tangle_window=args.tangle_window,
+        consecutive_days=args.consecutive_days,
+        require_yang_line=not args.no_yang_line,
+        require_ma_ordering=not args.no_ma_ordering,
+    )
+    run_scan(df, scanner, args.output)
+
+
+if __name__ == "__main__":
+    main()

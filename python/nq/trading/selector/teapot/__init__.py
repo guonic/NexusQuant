@@ -42,8 +42,32 @@ from nq.trading.selector.teapot.box_detector_anti_step import (
     AntiStepBoxDetector,
 )
 from nq.trading.selector.teapot.features import TeapotFeatures
+from nq.trading.selector.teapot.step_breakout_scanner import (
+    StepBreakoutResult,
+    StepBreakoutScanner,
+)
+from nq.trading.selector.teapot.topological_trend_scanner import (
+    TopologicalTrendScanner,
+)
+from nq.trading.selector.teapot.pure_price_dru import (
+    PurePriceDRUScanner,
+    analyze_pure_price_logic,
+)
+from nq.trading.selector.teapot.fractal_box_scanner import (
+    FractalBoxScanner,
+    capture_topological_final,
+)
+from nq.trading.selector.teapot.vertical_piercing_scanner import (
+    VerticalPiercingScanner,
+    capture_vertical_piercing,
+)
+from nq.trading.selector.teapot.tangle_reversal_scanner import (
+    TangleReversalScanner,
+    capture_tangle_reversal,
+)
 from nq.trading.selector.teapot.filters import TeapotFilters
 from nq.trading.selector.teapot.state_machine import TeapotStateMachine
+from nq.trading.selector.teapot.market_regime import analyze_market_regime
 
 __all__ = [
     "TeapotSelector",
@@ -66,4 +90,16 @@ __all__ = [
     "RibbonCoherenceDetector",
     "CompositeEquilibriumDetector",
     "AntiStepBoxDetector",
+    "StepBreakoutScanner",
+    "StepBreakoutResult",
+    "TopologicalTrendScanner",
+    "PurePriceDRUScanner",
+    "analyze_pure_price_logic",
+    "FractalBoxScanner",
+    "capture_topological_final",
+    "VerticalPiercingScanner",
+    "capture_vertical_piercing",
+    "TangleReversalScanner",
+    "capture_tangle_reversal",
+    "analyze_market_regime",
 ]

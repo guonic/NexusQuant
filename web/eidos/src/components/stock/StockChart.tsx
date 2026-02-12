@@ -26,20 +26,27 @@ export function StockChart({
   className = '',
   style,
   backtestOverlay,
+  onKlineClick,
+  clickable = false,
+  initialVisibleWindow,
 }: StockChartProps) {
   // Internal state
   const [indicators, setIndicators] = useState<IndicatorConfig>(
     externalIndicators || DEFAULT_INDICATORS
   )
   const [isMinimized, setIsMinimized] = useState(false)
-  const [visibleWindow, setVisibleWindow] = useState<{ start: number; end: number }>({ start: 70, end: 100 }) // 默认显示最后30%的数据
+  const defaultWindow = initialVisibleWindow || { start: 70, end: 100 }
+  const [visibleWindow, setVisibleWindow] = useState<{ start: number; end: number }>(defaultWindow)
   
   // Refs
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
   const resizeHandlerRef = useRef<(() => void) | null>(null)
   const dataZoomHandlerRef = useRef<((params: any) => void) | null>(null)
-  const visibleWindowRef = useRef<{ start: number; end: number }>({ start: 70, end: 100 }) // 保存窗口范围，避免指标变化时丢失
+  const visibleWindowRef = useRef<{ start: number; end: number }>(defaultWindow) // 保存窗口范围，避免指标变化时丢失
+  const containerClickHandlerRef = useRef<((event: MouseEvent) => void) | null>(null)
+  const echartsClickHandledRef = useRef<boolean>(false)
+  const lastClickTimeRef = useRef<number>(0)
   
   // Update indicators when external prop changes
   useEffect(() => {
@@ -879,6 +886,108 @@ export function StockChart({
     chart.on('dataZoom', handleDataZoom)
     dataZoomHandlerRef.current = handleDataZoom
     
+    // Handle click events if clickable
+    if (clickable && onKlineClick) {
+      chart.off('click')
+      chart.on('click', (params: any) => {
+        echartsClickHandledRef.current = false
+        let dateIndex = -1
+        
+        // Case 1: Click on candlestick series (body or shadows)
+        if (params.componentType === 'series' && params.seriesType === 'candlestick') {
+          dateIndex = params.dataIndex
+          echartsClickHandledRef.current = true
+        }
+        // Case 2: Click on xAxis or grid - get value from params
+        else if (params.componentType === 'xAxis' || params.componentType === 'grid') {
+          const clickedValue = params.value
+          if (clickedValue !== undefined && clickedValue !== null) {
+            if (typeof clickedValue === 'number') {
+              dateIndex = Math.round(clickedValue)
+            } else if (typeof clickedValue === 'string') {
+              dateIndex = dates.findIndex(d => d === clickedValue || d.split('T')[0] === clickedValue.split('T')[0])
+            }
+            if (dateIndex >= 0) {
+              echartsClickHandledRef.current = true
+            }
+          }
+        }
+        // Case 3: Try to get dataIndex from any params
+        else if (params.dataIndex !== undefined && params.dataIndex !== null) {
+          dateIndex = params.dataIndex
+          echartsClickHandledRef.current = true
+        }
+        // Case 4: Try to get value from params
+        else if (params.value !== undefined && params.value !== null) {
+          const clickedValue = params.value
+          if (typeof clickedValue === 'number') {
+            dateIndex = Math.round(clickedValue)
+          } else if (typeof clickedValue === 'string') {
+            dateIndex = dates.findIndex(d => d === clickedValue || d.split('T')[0] === clickedValue.split('T')[0])
+          }
+          if (dateIndex >= 0) {
+            echartsClickHandledRef.current = true
+          }
+        }
+        
+        // Trigger callback if we found a valid date index
+        if (dateIndex >= 0 && dateIndex < dates.length) {
+          const now = Date.now()
+          // Prevent duplicate calls within 100ms
+          if (now - lastClickTimeRef.current > 100) {
+            lastClickTimeRef.current = now
+            onKlineClick(dates[dateIndex])
+          }
+        }
+      })
+      
+      // Also listen to click events on the chart container as fallback
+      // This catches clicks that ECharts didn't handle (e.g., on shadows, empty areas)
+      if (chartRef.current) {
+        containerClickHandlerRef.current = (event: MouseEvent) => {
+          // Skip if ECharts already handled it
+          if (echartsClickHandledRef.current) {
+            echartsClickHandledRef.current = false // Reset for next click
+            return
+          }
+          
+          if (!chartInstanceRef.current || !chartRef.current) return
+          
+          const now = Date.now()
+          // Prevent duplicate calls within 100ms
+          if (now - lastClickTimeRef.current < 100) {
+            return
+          }
+          
+          try {
+            const rect = chartRef.current.getBoundingClientRect()
+            const x = event.clientX - rect.left
+            const y = event.clientY - rect.top
+            
+            // Convert pixel coordinates to data coordinates
+            const pointInPixel = [x, y]
+            const pointInGrid = chartInstanceRef.current.convertFromPixel('grid', pointInPixel)
+            
+            if (pointInGrid && Array.isArray(pointInGrid) && pointInGrid.length >= 2) {
+              const xValue = pointInGrid[0]
+              if (typeof xValue === 'number' && !isNaN(xValue) && isFinite(xValue)) {
+                const dateIndex = Math.max(0, Math.min(dates.length - 1, Math.round(xValue)))
+                if (dateIndex >= 0 && dateIndex < dates.length) {
+                  lastClickTimeRef.current = now
+                  onKlineClick(dates[dateIndex])
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore conversion errors
+            console.warn('Failed to convert pixel to data coordinates:', e)
+          }
+        }
+        
+        chartRef.current.addEventListener('click', containerClickHandlerRef.current)
+      }
+    }
+    
     // Handle resize
     const handleResize = () => {
       if (chartInstanceRef.current && !chartInstanceRef.current.isDisposed()) {
@@ -902,6 +1011,11 @@ export function StockChart({
         window.removeEventListener('resize', resizeHandlerRef.current)
         resizeHandlerRef.current = null
       }
+      // Remove container click handler if it exists
+      if (chartRef.current && containerClickHandlerRef.current) {
+        chartRef.current.removeEventListener('click', containerClickHandlerRef.current)
+        containerClickHandlerRef.current = null
+      }
       if (chartInstanceRef.current) {
         try {
           if (!chartInstanceRef.current.isDisposed()) {
@@ -913,7 +1027,7 @@ export function StockChart({
         chartInstanceRef.current = null
       }
     }
-  }, [klineData, indicatorData, indicators, isMinimized, backtestOverlay?.backtestStart, backtestOverlay?.backtestEnd, backtestOverlay?.tradeMarkers]) // 移除 visibleWindow 依赖，使用 ref 保持窗口范围
+  }, [klineData, indicatorData, indicators, isMinimized, backtestOverlay?.backtestStart, backtestOverlay?.backtestEnd, backtestOverlay?.tradeMarkers, clickable, onKlineClick]) // 移除 visibleWindow 依赖，使用 ref 保持窗口范围
   
   const timeIntervals: { value: TimeInterval; label: string }[] = [
     { value: '1m', label: '1分钟' },
