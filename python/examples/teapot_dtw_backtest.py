@@ -150,15 +150,20 @@ def main() -> None:
         logger.warning("Load config failed: %s", e)
         db_config = DatabaseConfig()
 
-    # Normalize symbols to ts_code (e.g. 600487 -> 600487.SH); DB stores Tushare format
+    # Normalize symbols to ts_code (e.g. 600487 -> 600487.SH); support comma-separated list
     symbols = None
     if args.symbols:
-        symbols = [normalize_stock_code(s) for s in args.symbols]
+        raw_parts = []
+        for s in args.symbols:
+            raw_parts.extend(p.strip() for p in s.split(",") if p.strip())
+        symbols = [normalize_stock_code(s) for s in raw_parts]
         symbols = [s for s in symbols if s]
-        if args.symbols and not symbols:
+        seen = set()
+        symbols = [s for s in symbols if s not in seen and (seen.add(s) or True)]
+        if raw_parts and not symbols:
             logger.error("No valid symbols after normalization: %s", args.symbols)
             return
-        logger.info("Resolved symbols: %s -> %s", args.symbols, symbols)
+        logger.info("Resolved symbols: %s -> %s", raw_parts, symbols)
 
     loader = TeapotDataLoader(db_config=db_config, schema="quant", use_cache=args.use_cache)
     logger.info("Loading data %s to %s", args.start_date, args.end_date)

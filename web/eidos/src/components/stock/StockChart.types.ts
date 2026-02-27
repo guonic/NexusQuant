@@ -107,5 +107,8 @@ export interface StockChartProps {
   className?: string
   style?: React.CSSProperties
   backtestOverlay?: BacktestOverlay // Optional backtest overlay
+  onKlineClick?: (date: string) => void // Callback when K-line is clicked
+  clickable?: boolean // Enable click interaction
+  initialVisibleWindow?: { start: number; end: number } // Initial visible window (0-100)
 }
 

@@ -16,6 +16,11 @@ from nq.api.rest.eidos.schemas import (
     TradeResponse,
     PerformanceMetricsResponse,
     TradeStatsResponse,
+    BacktestReportResponse,
+    DTWHitsPageResponse,
+    DTWHitRow,
+    DTWAnnotationRequest,
+    DTWAnnotationResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -400,4 +405,242 @@ async def get_stock_kline_handler(
     except Exception as e:
         logger.error(f"Failed to get K-line data for {symbol}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve K-line data: {str(e)}")
+
+
+# DTW Labeling handlers
+async def get_dtw_hits_handler(
+    filename: str,
+    page: int = 1,
+    page_size: int = 50,
+) -> DTWHitsPageResponse:
+    """
+    Get paginated DTW hits from CSV file.
+    
+    Args:
+        filename: CSV filename (relative to outputs/ or absolute path).
+        page: Page number (1-based).
+        page_size: Number of rows per page.
+    
+    Returns:
+        Paginated DTW hits.
+    
+    Raises:
+        HTTPException: If file not found or read fails.
+    """
+    from pathlib import Path
+    import pandas as pd
+
+    # Resolve file path (try outputs/ first, then absolute)
+    csv_path = Path("outputs") / filename
+    if not csv_path.exists():
+        csv_path = Path(filename)
+    if not csv_path.exists():
+        raise HTTPException(status_code=404, detail=f"CSV file not found: {filename}")
+
+    try:
+        df = pd.read_csv(csv_path)
+        total = len(df)
+        total_pages = (total + page_size - 1) // page_size
+
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_df = df.iloc[start_idx:end_idx]
+
+        hits = []
+        for local_idx, (_, row) in enumerate(page_df.iterrows()):
+            # Calculate actual row index in CSV (0-based)
+            actual_row_index = start_idx + local_idx
+            hit = DTWHitRow(
+                template=str(row.get("template", "")),
+                ts_code=str(row.get("ts_code", "")),
+                start_date=str(row.get("start_date", "")),
+                end_date=str(row.get("end_date", "")),
+                score=float(row.get("score", 0.0)),
+                hit_count=int(row.get("hit_count", 1)) if pd.notna(row.get("hit_count")) else 1,
+                start_index=actual_row_index,  # Store actual CSV row index
+                end_index=int(row.get("end_index")) if pd.notna(row.get("end_index")) else None,
+                label=str(row.get("label", "")) if pd.notna(row.get("label")) else None,
+                platform_start=str(row.get("platform_start", "")) if pd.notna(row.get("platform_start")) else None,
+                platform_end=str(row.get("platform_end", "")) if pd.notna(row.get("platform_end")) else None,
+                breakout_date=str(row.get("breakout_date", "")) if pd.notna(row.get("breakout_date")) else None,
+                notes=str(row.get("notes", "")) if pd.notna(row.get("notes")) else None,
+            )
+            hits.append(hit)
+
+        return DTWHitsPageResponse(
+            hits=hits,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+        )
+    except Exception as e:
+        logger.error(f"Failed to read CSV {filename}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to read CSV: {str(e)}")
+
+
+async def get_dtw_kline_handler(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    extend_left_bars: int = 5,
+    extend_right_bars: int = 5,
+) -> Dict[str, Any]:
+    """
+    Get K-line data for DTW labeling (with MA5, MA10).
+    
+    Args:
+        symbol: Stock code (e.g., "600487.SH").
+        start_date: Start date YYYY-MM-DD.
+        end_date: End date YYYY-MM-DD.
+        extend_left_bars: Number of K-line bars to extend left (default 5).
+        extend_right_bars: Number of K-line bars to extend right (default 5).
+    
+    Returns:
+        K-line data with MA5, MA10 indicators.
+    
+    Raises:
+        HTTPException: If data retrieval fails.
+    """
+    from datetime import timedelta
+    import pandas as pd
+    from nq.config import load_config, DatabaseConfig
+    from nq.repo.kline_repo import StockKlineDayRepo
+
+    try:
+        start_d = date.fromisoformat(start_date)
+        end_d = date.fromisoformat(end_date)
+
+        # First, load a wider range to find actual trading days
+        # Estimate: extend by ~2x the requested bars to account for weekends/holidays
+        estimated_extend_days = max(extend_left_bars * 2, 20)
+        extended_start = start_d - timedelta(days=estimated_extend_days)
+        extended_end = end_d + timedelta(days=max(extend_right_bars * 2, 10))
+
+        try:
+            config = load_config()
+            db_config = config.database
+        except Exception:
+            db_config = DatabaseConfig()
+
+        kline_repo = StockKlineDayRepo(db_config, schema="quant")
+        klines = kline_repo.get_by_ts_code(
+            ts_code=symbol,
+            start_time=datetime.combine(extended_start, datetime.min.time()),
+            end_time=datetime.combine(extended_end, datetime.max.time()),
+        )
+
+        if not klines:
+            raise HTTPException(status_code=404, detail=f"No K-line data for {symbol}")
+
+        kline_data = []
+        for k in klines:
+            trade_date = k.trade_date
+            if isinstance(trade_date, datetime):
+                date_str = trade_date.strftime("%Y-%m-%d")
+            elif isinstance(trade_date, date):
+                date_str = trade_date.strftime("%Y-%m-%d")
+            else:
+                date_str = str(trade_date)
+
+            kline_data.append({
+                "date": date_str,
+                "open": float(k.open) if k.open else 0.0,
+                "high": float(k.high) if k.high else 0.0,
+                "low": float(k.low) if k.low else 0.0,
+                "close": float(k.close) if k.close else 0.0,
+                "volume": float(k.volume) if k.volume else 0.0,
+            })
+
+        kline_data.sort(key=lambda x: x["date"])
+
+        # Find indices for start_date and end_date
+        start_idx = None
+        end_idx = None
+        for i, k in enumerate(kline_data):
+            if k["date"] == start_date:
+                start_idx = i
+            if k["date"] == end_date:
+                end_idx = i
+        
+        if start_idx is None or end_idx is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not find start_date {start_date} or end_date {end_date} in K-line data"
+            )
+
+        # Trim to ensure exactly extend_left_bars before start and extend_right_bars after end
+        actual_start_idx = max(0, start_idx - extend_left_bars)
+        actual_end_idx = min(len(kline_data) - 1, end_idx + extend_right_bars)
+        
+        trimmed_kline_data = kline_data[actual_start_idx:actual_end_idx + 1]
+
+        closes = pd.Series([k["close"] for k in trimmed_kline_data])
+        ma5 = closes.rolling(window=5).mean().tolist()
+        ma10 = closes.rolling(window=10).mean().tolist()
+
+        indicators = {
+            "ma5": [float(x) if pd.notna(x) else None for x in ma5],
+            "ma10": [float(x) if pd.notna(x) else None for x in ma10],
+        }
+
+        return {
+            "kline_data": trimmed_kline_data,
+            "indicators": indicators,
+            "match_start": start_date,
+            "match_end": end_date,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get DTW K-line for {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve K-line: {str(e)}")
+
+
+async def save_dtw_annotation_handler(
+    request: DTWAnnotationRequest,
+) -> DTWAnnotationResponse:
+    """
+    Save annotation for a DTW hit row back to CSV.
+    
+    Args:
+        request: Annotation data.
+    
+    Returns:
+        Success status.
+    
+    Raises:
+        HTTPException: If file not found or write fails.
+    """
+    from pathlib import Path
+    import pandas as pd
+
+    csv_path = Path("outputs") / request.csv_file
+    if not csv_path.exists():
+        csv_path = Path(request.csv_file)
+    if not csv_path.exists():
+        raise HTTPException(status_code=404, detail=f"CSV file not found: {request.csv_file}")
+
+    try:
+        df = pd.read_csv(csv_path)
+        if request.row_index < 0 or request.row_index >= len(df):
+            raise HTTPException(status_code=400, detail=f"Invalid row_index: {request.row_index}")
+
+        df.at[request.row_index, "label"] = request.label
+        if request.platform_start:
+            df.at[request.row_index, "platform_start"] = request.platform_start
+        if request.platform_end:
+            df.at[request.row_index, "platform_end"] = request.platform_end
+        if request.breakout_date:
+            df.at[request.row_index, "breakout_date"] = request.breakout_date
+        if request.notes:
+            df.at[request.row_index, "notes"] = request.notes
+
+        df.to_csv(csv_path, index=False)
+        return DTWAnnotationResponse(success=True, message="Annotation saved")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save annotation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save annotation: {str(e)}")
 

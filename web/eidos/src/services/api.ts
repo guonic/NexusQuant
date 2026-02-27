@@ -147,5 +147,96 @@ export async function exportReport(expId: string, format: 'html' | 'markdown'): 
   return response.data
 }
 
+/**
+ * DTW Labeling API
+ */
+
+export interface DTWHitRow {
+  template: string
+  ts_code: string
+  start_date: string
+  end_date: string
+  score: number
+  hit_count?: number
+  start_index?: number
+  end_index?: number
+  label?: string | null
+  platform_start?: string | null
+  platform_end?: string | null
+  breakout_date?: string | null
+  notes?: string | null
+}
+
+export interface DTWHitsPageResponse {
+  hits: DTWHitRow[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface DTWKlineResponse {
+  kline_data: KlineData[]
+  indicators?: {
+    ma5?: (number | null)[]
+    ma10?: (number | null)[]
+  }
+  match_start: string
+  match_end: string
+}
+
+export interface DTWAnnotationRequest {
+  csv_file: string
+  row_index: number
+  label: string
+  platform_start?: string
+  platform_end?: string
+  breakout_date?: string
+  notes?: string
+}
+
+/**
+ * Get paginated DTW hits from CSV
+ */
+export async function getDTWHits(
+  filename: string,
+  page: number = 1,
+  pageSize: number = 50
+): Promise<DTWHitsPageResponse> {
+  const response = await api.get<DTWHitsPageResponse>(`/dtw/labeling/csv/${encodeURIComponent(filename)}`, {
+    params: { page, page_size: pageSize },
+  })
+  return response.data
+}
+
+/**
+ * Get K-line data for DTW labeling
+ */
+export async function getDTWKline(
+  symbol: string,
+  startDate: string,
+  endDate: string,
+  extendLeftBars: number = 5,
+  extendRightBars: number = 5
+): Promise<DTWKlineResponse> {
+  const response = await api.get<DTWKlineResponse>(`/dtw/labeling/kline/${symbol}`, {
+    params: {
+      start_date: startDate,
+      end_date: endDate,
+      extend_left_bars: extendLeftBars,
+      extend_right_bars: extendRightBars,
+    },
+  })
+  return response.data
+}
+
+/**
+ * Save DTW annotation
+ */
+export async function saveDTWAnnotation(request: DTWAnnotationRequest): Promise<{ success: boolean; message: string }> {
+  const response = await api.post(`/dtw/labeling/annotate`, request)
+  return response.data
+}
+
 export default api
 

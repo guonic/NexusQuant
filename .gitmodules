@@ -1,3 +1,6 @@
 [submodule "docs"]
 	path = docs
 	url = git@github.com:guonic/nq-docs.git
+[submodule "third-party/internal-mtls-gateway-ops"]
+	path = third-party/internal-mtls-gateway-ops
+	url = git@github.com:guonic/internal-mtls-gateway-ops.git

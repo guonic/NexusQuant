@@ -50,63 +50,88 @@ class TradeResponse(Trade):
     pass
 
 
-class ModelOutputResponse(ModelOutput):
-    """Response schema for model output."""
-
-    pass
-
-
 class PerformanceMetricsResponse(BaseModel):
     """Response schema for performance metrics."""
 
-    total_return: float = Field(..., description="Total return ratio")
-    max_drawdown: float = Field(..., description="Maximum drawdown ratio")
-    final_nav: float = Field(..., description="Final NAV")
-    trading_days: int = Field(..., description="Number of trading days")
+    total_return: float = Field(..., description="Total return")
+    annualized_return: Optional[float] = Field(None, description="Annualized return")
     sharpe_ratio: Optional[float] = Field(None, description="Sharpe ratio")
-    annual_return: Optional[float] = Field(None, description="Annual return ratio")
+    max_drawdown: float = Field(..., description="Maximum drawdown")
+    final_nav: float = Field(..., description="Final NAV")
+    initial_cash: float = Field(..., description="Initial cash")
+    total_trades: int = Field(..., description="Total number of trades")
+    win_rate: Optional[float] = Field(None, description="Win rate")
+    profit_factor: Optional[float] = Field(None, description="Profit factor")
 
 
 class TradeStatsResponse(BaseModel):
     """Response schema for trade statistics."""
 
     total_trades: int = Field(..., description="Total number of trades")
-    buy_count: int = Field(..., description="Number of buy trades")
-    sell_count: int = Field(..., description="Number of sell trades")
-    win_rate: float = Field(..., description="Win rate (0-1)")
-    avg_hold_days: float = Field(..., description="Average holding days")
-
-
-class ErrorResponse(BaseModel):
-    """Error response schema."""
-
-    error: str = Field(..., description="Error message")
-    detail: Optional[str] = Field(None, description="Error details")
-
-
-# Report schemas
-class MetricResultResponse(BaseModel):
-    """Response schema for metric result."""
-    
-    name: str = Field(..., description="Metric name")
-    category: str = Field(..., description="Metric category")
-    value: Optional[float] = Field(None, description="Metric value")
-    unit: Optional[str] = Field(None, description="Unit")
-    format: Optional[str] = Field(None, description="Format string")
-    description: Optional[str] = Field(None, description="Description")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    buy_trades: int = Field(..., description="Number of buy trades")
+    sell_trades: int = Field(..., description="Number of sell trades")
+    win_trades: int = Field(..., description="Number of winning trades")
+    loss_trades: int = Field(..., description="Number of losing trades")
+    win_rate: float = Field(..., description="Win rate")
+    avg_profit: Optional[float] = Field(None, description="Average profit")
+    avg_loss: Optional[float] = Field(None, description="Average loss")
+    profit_factor: Optional[float] = Field(None, description="Profit factor")
+    max_consecutive_wins: int = Field(..., description="Maximum consecutive wins")
+    max_consecutive_losses: int = Field(..., description="Maximum consecutive losses")
 
 
 class BacktestReportResponse(BaseModel):
     """Response schema for backtest report."""
-    
-    exp_id: str = Field(..., description="Experiment ID")
-    experiment_name: str = Field(..., description="Experiment name")
-    start_date: str = Field(..., description="Start date")
-    end_date: str = Field(..., description="End date")
-    generated_at: str = Field(..., description="Report generation timestamp")
-    metrics: List[MetricResultResponse] = Field(..., description="List of all metrics")
-    metrics_by_category: Dict[str, List[MetricResultResponse]] = Field(
-        ..., description="Metrics organized by category"
-    )
 
+    exp_id: str = Field(..., description="Experiment ID")
+    report: Dict[str, Any] = Field(..., description="Report data")
+    format: str = Field(default="json", description="Report format")
+
+
+# DTW Labeling schemas
+class DTWHitRow(BaseModel):
+    """Single row from DTW hits CSV."""
+
+    template: str = Field(..., description="Template name")
+    ts_code: str = Field(..., description="Stock code")
+    start_date: str = Field(..., description="Start date YYYY-MM-DD")
+    end_date: str = Field(..., description="End date YYYY-MM-DD")
+    score: float = Field(..., description="DTW score")
+    hit_count: Optional[int] = Field(1, description="Number of hits merged")
+    start_index: Optional[int] = Field(None, description="Start index")
+    end_index: Optional[int] = Field(None, description="End index")
+    # Annotation fields (optional, added after labeling)
+    label: Optional[str] = Field(None, description="Label: positive/negative")
+    platform_start: Optional[str] = Field(None, description="Platform start date YYYY-MM-DD")
+    platform_end: Optional[str] = Field(None, description="Platform end date YYYY-MM-DD")
+    breakout_date: Optional[str] = Field(None, description="Breakout date YYYY-MM-DD")
+    notes: Optional[str] = Field(None, description="Notes")
+
+
+class DTWHitsPageResponse(BaseModel):
+    """Paginated DTW hits response."""
+
+    hits: List[DTWHitRow] = Field(..., description="List of hits")
+    total: int = Field(..., description="Total number of hits")
+    page: int = Field(..., description="Current page (1-based)")
+    page_size: int = Field(..., description="Page size")
+    total_pages: int = Field(..., description="Total number of pages")
+
+
+class DTWAnnotationRequest(BaseModel):
+    """Request to save annotation for a hit."""
+
+    csv_file: str = Field(..., description="CSV filename")
+    row_index: int = Field(..., description="Row index (0-based)")
+    label: str = Field(..., description="Label: positive or negative")
+    platform_start: Optional[str] = Field(None, description="Platform start date YYYY-MM-DD")
+    platform_end: Optional[str] = Field(None, description="Platform end date YYYY-MM-DD")
+    breakout_date: Optional[str] = Field(None, description="Breakout date YYYY-MM-DD")
+    notes: Optional[str] = Field(None, description="Notes")
+
+
+class DTWAnnotationResponse(BaseModel):
+    """Response after saving annotation."""
+
+    success: bool = Field(..., description="Success status")
+    message: str = Field(..., description="Message")

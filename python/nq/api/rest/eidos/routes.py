@@ -15,6 +15,9 @@ from nq.api.rest.eidos.schemas import (
     PerformanceMetricsResponse,
     TradeStatsResponse,
     BacktestReportResponse,
+    DTWHitsPageResponse,
+    DTWAnnotationRequest,
+    DTWAnnotationResponse,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["eidos"])
@@ -220,4 +223,65 @@ async def get_backtest_report(
     return await handlers.get_backtest_report_handler(
         exp_id, format=format, categories=categories, metrics=metrics
     )
+
+
+# DTW Labeling routes
+@router.get("/dtw/labeling/csv/{filename:path}", response_model=DTWHitsPageResponse)
+async def get_dtw_hits(
+    filename: str,
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(50, ge=1, le=500, description="Page size"),
+):
+    """
+    Get paginated DTW hits from CSV file.
+    
+    Args:
+        filename: CSV filename (e.g., "dtw_hits_600487.SH_2024-01-01_2024-12-31.csv").
+        page: Page number (1-based).
+        page_size: Number of rows per page.
+    
+    Returns:
+        Paginated DTW hits.
+    """
+    return await handlers.get_dtw_hits_handler(filename, page=page, page_size=page_size)
+
+
+@router.get("/dtw/labeling/kline/{symbol}")
+async def get_dtw_kline(
+    symbol: str,
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+    extend_left_bars: int = Query(5, description="Number of K-line bars to extend left"),
+    extend_right_bars: int = Query(5, description="Number of K-line bars to extend right"),
+):
+    """
+    Get K-line data for DTW labeling (with MA5, MA10).
+    
+    Args:
+        symbol: Stock code (e.g., "600487.SH").
+        start_date: Start date YYYY-MM-DD.
+        end_date: End date YYYY-MM-DD.
+        extend_left_bars: Number of K-line bars to extend left (default 5).
+        extend_right_bars: Number of K-line bars to extend right (default 5).
+    
+    Returns:
+        K-line data with MA5, MA10 indicators.
+    """
+    return await handlers.get_dtw_kline_handler(
+        symbol, start_date, end_date, extend_left_bars, extend_right_bars
+    )
+
+
+@router.post("/dtw/labeling/annotate", response_model=DTWAnnotationResponse)
+async def save_dtw_annotation(request: DTWAnnotationRequest):
+    """
+    Save annotation for a DTW hit row.
+    
+    Args:
+        request: Annotation data (CSV file, row index, label, dates, notes).
+    
+    Returns:
+        Success status.
+    """
+    return await handlers.save_dtw_annotation_handler(request)
 
